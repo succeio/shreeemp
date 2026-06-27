@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+    # Наша база данных PostgreSQL
+    postgres:
+        image: postgres:16-alpine
+        container_name: chat_postgres
+        restart: always
+        environment:
+            POSTGRES_USER: chat_user
+            POSTGRES_PASSWORD: chat_password
+            POSTGRES_DB: chat_db
+        ports:
+            - "5432:5432"
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U chat_user -d chat_db"]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    # Наш Go-сервер чата
+    server:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: shreeemp-server
+        restart: always
+        ports:
+            - "8443:8443"
+        environment:
+            # Единая точка конфигурации: Docker подставит хост 'postgres' вместо 'localhost'
+            DATABASE_URL: "host=postgres user=chat_user password=chat_password dbname=chat_db port=5432 sslmode=disable TimeZone=Europe/Moscow"
+        volumes:
+            - ./certs:/app/certs
+        depends_on:
+            postgres:
+                condition: service_healthy
+
+volumes:
+    pgdata:
