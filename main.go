@@ -793,13 +793,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		// === Экран выбора комнат ===
+		// Если с прошлого скролла прошло меньше 60мс — игнорируем пачечный сигнал терминала
+		if time.Since(m.lastScrollTime) < 60*time.Millisecond {
+			return m, nil
+		}
+		// Запоминаем время текущего скролла
+		m.lastScrollTime = time.Now()
 		if m.activeScreen == screenRooms {
-			// Если с прошлого скролла прошло меньше 60мс — игнорируем пачечный сигнал терминала
-			if time.Since(m.lastScrollTime) < 60*time.Millisecond {
-				return m, nil
-			}
-			// Запоминаем время текущего скролла
-			m.lastScrollTime = time.Now()
 
 			switch msg.Button {
 			case tea.MouseWheelUp:
@@ -816,7 +816,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// === Экран чата (оставляем БЕЗ изменений, там прокрутка по 3 строки — это ок) ===
+		// === Экран чата ===
 		if m.activeScreen == screenChat && m.focusOnHistory {
 			switch msg.Button {
 			case tea.MouseWheelUp:
