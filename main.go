@@ -250,7 +250,9 @@ func handleServerClient(conn net.Conn, hub *Hub) {
 
 	// Если клиент отключился сразу или прислал пустую строку
 	if nickname == "" {
-		nickname = "Guest_" + conn.RemoteAddr().String()
+		// nickname = "Guest_" + conn.RemoteAddr().String()
+		conn.Close()
+		return
 	}
 
 	// 3. Инициализируем клиента с полученным ником
@@ -266,7 +268,7 @@ func handleServerClient(conn net.Conn, hub *Hub) {
 	log.Printf("[SERVER] Пользователь %s (%s) успешно авторизован", client.name, conn.RemoteAddr().String())
 
 	// Автоматически добавляем в общую комнату
-	hub.JoinRoom("general", client)
+	// hub.JoinRoom("general", client)
 
 	for scanner.Scan() {
 		text := cleanString(scanner.Text())
@@ -296,11 +298,19 @@ func handleServerClient(conn net.Conn, hub *Hub) {
 				// но так как мы будем делать Broadcast, хаб сам заблокирует то, что нужно.
 				client.name = newNick
 
+				// 3. Вызываем функцию сохранения в файл
+				// (Передаем туда обновленную структуру вашего конфига)
+				err := SaveConfig(newNick)
+				if err != nil {
+					log.Printf("⚠️ Ошибка сохранения конфига: %v", err)
+				}
+
 				// Оповещаем комнату о переименовании
 				notification := fmt.Sprintf("— Пользователь %s изменил имя на %s —\n", oldNick, newNick)
 				hub.Broadcast(client.room, nil, notification)
 
 				log.Printf("[SERVER] %s переименовался в %s", oldNick, newNick)
+
 				continue
 			}
 		}
