@@ -250,9 +250,9 @@ func handleServerClient(conn net.Conn, hub *Hub) {
 
 	// Если клиент отключился сразу или прислал пустую строку
 	if nickname == "" {
-		// nickname = "Guest_" + conn.RemoteAddr().String()
-		conn.Close()
-		return
+		nickname = "Anonymouse"
+		// conn.Close()
+		// return
 	}
 
 	// 3. Инициализируем клиента с полученным ником
@@ -298,16 +298,15 @@ func handleServerClient(conn net.Conn, hub *Hub) {
 				// но так как мы будем делать Broadcast, хаб сам заблокирует то, что нужно.
 				client.name = newNick
 
-				// 3. Вызываем функцию сохранения в файл
-				// (Передаем туда обновленную структуру вашего конфига)
-				err := SaveConfig(newNick)
-				if err != nil {
-					log.Printf("⚠️ Ошибка сохранения конфига: %v", err)
-				}
-
 				// Оповещаем комнату о переименовании
 				notification := fmt.Sprintf("— Пользователь %s изменил имя на %s —\n", oldNick, newNick)
 				hub.Broadcast(client.room, nil, notification)
+
+				// 2. ДОБАВЛЯЕМ: Отправляем скрытую команду клиенту.
+				// Добавляем префикс CMD:NICK_UPDATED:, чтобы клиент опознал её.
+				// Обязательно добавляем \n в конце, чтобы scanner.Scan() на клиенте её прочитал!
+				cmdToClient := fmt.Sprintf("CMD:NICK_UPDATED:%s\n", newNick)
+				client.conn.Write([]byte(cmdToClient)) // Используйте ваше имя переменной сокета (conn)
 
 				log.Printf("[SERVER] %s переименовался в %s", oldNick, newNick)
 
@@ -576,6 +575,10 @@ type Config struct {
 	Username string `json:"username"`
 }
 
+type updateLocalConfigMsg struct {
+	newNick string
+}
+
 // getConfigFilepath возвращает путь к файлу конфига в зависимости от ОС
 func getConfigFilepath() (string, error) {
 	// Находит %APPDATA% на Windows, ~/.config на Linux, ~/Library/Application Support на macOS
@@ -711,8 +714,16 @@ type disconnectMsg struct{}
 func listenServer(conn net.Conn, p *tea.Program) {
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
-		// Отправляем полученную строку как Msg внутрь цикла Update Bubble Tea
-		p.Send(serverMessageMsg(scanner.Text()))
+		text := scanner.Text()
+
+		// ПРОВЕРКА: Если строка начинается со скрытого маркера от сервера
+		if newNick, ok := strings.CutPrefix(text, "CMD:NICK_UPDATED:"); ok {
+			p.Send(updateLocalConfigMsg{newNick: newNick})
+			continue
+		}
+
+		// Если это не маркер, то это обычное сообщение чата, шлем как обычно
+		p.Send(serverMessageMsg(text))
 	}
 	// Цикл завершился. Проверяем почему:
 	if err := scanner.Err(); err != nil {
@@ -786,6 +797,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		errMsg := fmt.Sprintf("❌ Сетевая ошибка: %v", msg)
 		m.messages = append(m.messages, errMsg)
 		m.updateViewportContent()
+		return m, nil
+
+	case updateLocalConfigMsg:
+		m.myName = msg.newNick      // Меняем в памяти UI
+		_ = SaveConfig(msg.newNick) // Перезаписываем ваш config.json
 		return m, nil
 
 	case tea.WindowSizeMsg:
