@@ -218,8 +218,28 @@ func runServer(port int) {
 func handleServerClient(conn net.Conn, hub *Hub) {
 	defer conn.Close()
 
+	// Создаем буферизированный читатель для сокета
+	reader := bufio.NewReader(conn)
+
+	// Заглядываем в первые 4 байта подключения
+	// Peek не продвигает указатель чтения, данные остаются в буфере для обычных клиентов
+	preview, err := reader.Peek(4)
+	if err == nil {
+		firstBytes := string(preview)
+
+		// Если это HTTP-методы, которые шлют сканеры или браузеры
+		if strings.HasPrefix(firstBytes, "GET ") ||
+			strings.HasPrefix(firstBytes, "POST") ||
+			strings.HasPrefix(firstBytes, "HEAD") {
+
+			log.Printf("[SERVER BLOCK] Сброшено HTTP-подключение сканера с адреса: %s", conn.RemoteAddr())
+			conn.Close()
+			return
+		}
+	}
+
 	// 1. Создаем сканер для всего времени жизни соединения
-	scanner := bufio.NewScanner(conn)
+	scanner := bufio.NewScanner(reader)
 
 	// 2. Читаем строго первую строчку — это никнейм
 	var nickname string
