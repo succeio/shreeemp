@@ -549,8 +549,11 @@ func runClient(address string) {
 
 	defer conn.Close()
 
-	savedNick, err := LoadConfig()
-	if err != nil {
+	var savedNick string
+	savedNick, err = LoadConfig()
+	if err != nil || savedNick == "" {
+		SaveConfig("Anonymouse")
+		savedNick = "Anonymouse"
 		log.Printf("[WARNING] Не удалось прочитать конфиг: %v", err)
 	}
 
