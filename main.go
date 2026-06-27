@@ -328,13 +328,26 @@ func handleServerClient(conn net.Conn, hub *Hub) {
 
 // Вспомогательная функция очистки строк (чтобы не дублировать код)
 func cleanString(raw string) string {
-	var clean []rune
+	// 1. ОГРАНИЧЕНИЕ ПО ДЛИНЕ (Защита от DOS/OOM атак)
+	// Ограничиваем сообщение, например, в 500 символов (рун), чтобы не забить память.
+	const maxRunes = 500
+
+	var clean strings.Builder
+	runeCount := 0
+
 	for _, r := range raw {
+		if runeCount >= maxRunes {
+			break // Прерываем чтение, если пользователь превысил лимит
+		}
+
+		// 2. ФИЛЬТРАЦИЯ НЕПЕЧАТНЫХ СИМВОЛОВ (Защита от ANSI-инъекций)
 		if unicode.IsPrint(r) {
-			clean = append(clean, r)
+			clean.WriteRune(r)
+			runeCount++
 		}
 	}
-	return strings.TrimSpace(string(clean))
+
+	return strings.TrimSpace(clean.String())
 }
 
 // Клиент
