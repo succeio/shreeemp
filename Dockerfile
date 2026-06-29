@@ -12,7 +12,7 @@ COPY . .
 
 # Собираем бинарник для Linux без CGO (чтобы работал в чистом alpine)
 # Флаг -o указывает имя выходного файла
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o shreeemp-server .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o shreeemp-server ./cmd/main
 
 # --- Этап 2: Финальный легковесный образ ---
 FROM alpine:3.19
