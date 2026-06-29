@@ -12,3 +12,5 @@ shreeemp-client
 # Игнорируем данные базы данных
 *.db
 data/
+
+todo.md

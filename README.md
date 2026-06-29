@@ -11,9 +11,9 @@ Go + TLS + Bubble Tea v2
 
 #### Режим разработки
 ##### docker compose up --build
-##### go run main.go -mode=client
+##### go run ./cmd/main -mode=client
 
 #### Продуктовое (не проверял)
 На сервере положить ключ и сертификат в /certs.
 #### Запуск клиента на продуктовый адрес
-go run main.go -mode=client -host=95.213.x.x -port=8443
+go run ./cmd/main -mode=client -host=95.213.x.x -port=8443
