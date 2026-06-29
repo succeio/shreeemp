@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -222,6 +223,12 @@ func handleServerClient(conn net.Conn, hub *Hub) {
 			if newRoom != "" {
 				hub.JoinRoom(newRoom, client)
 				_, _ = fmt.Fprintf(conn, "Вы перешли в комнату: %s\n", newRoom)
+				roomsList := hub.GetRoomsWithCounts()
+				if f, err := os.OpenFile("/tmp/shreeemp_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+					fmt.Fprintf(f, "[SERVER] Sent: %s\n", roomsList)
+					f.Close()
+				}
+				_, _ = fmt.Fprintf(conn, "%s\n", roomsList)
 				continue
 			}
 		}
@@ -337,8 +344,15 @@ func (h *Hub) GetRoomsWithCounts() string {
 		uniqueRooms[roomName] = true
 	}
 
-	var parts []string
+	// Сортируем список комнат по алфавиту для стабильного отображения
+	var roomNames []string
 	for roomName := range uniqueRooms {
+		roomNames = append(roomNames, roomName)
+	}
+	sort.Strings(roomNames)
+
+	var parts []string
+	for _, roomName := range roomNames {
 		onlineCount := 0
 		if clients, exists := h.rooms[roomName]; exists {
 			onlineCount = len(clients)

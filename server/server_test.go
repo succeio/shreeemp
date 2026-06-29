@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1060,12 +1061,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 }
 
 func containsLine(lines []string, want string) bool {
-	for _, line := range lines {
-		if line == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(lines, want)
 }
 
 func countRoomsListResponses(lines []string) int {
