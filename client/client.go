@@ -354,7 +354,7 @@ func getThemeStyles(themeName string) uiStyles {
 		subtext = "#859289"
 		surface0 = "#2d353b"
 		overlay0 = "#3d484d"
-		mauve = "#d699b6"
+		mauve = "#e67e80"
 		lavender = "#83c092"
 		green = "#a7c080"
 		yellow = "#dbbc7f"
@@ -809,17 +809,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Фокус на Списке комнат (Sidebar)
 		if m.isFocused(focusRooms) {
 			switch keyStr {
-			case "up", "k":
+			case "up", "k", "л":
 				if m.selectedRoom > 0 {
 					m.selectedRoom--
 					m.clampRoomView()
 				}
-			case "down", "j":
+			case "down", "j", "о":
 				if m.selectedRoom < len(m.rooms)-1 {
 					m.selectedRoom++
 					m.clampRoomView()
 				}
-			case "enter":
+			case "enter", "l", "д":
 				if len(m.rooms) > 0 && m.selectedRoom < len(m.rooms) {
 					newRoom := m.rooms[m.selectedRoom].name
 					if newRoom != m.currentRoom {
@@ -839,28 +839,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Фокус на Истории сообщений
 		if m.isFocused(focusHistory) {
 			switch keyStr {
-			case "esc", "i":
+			case "esc", "i", "ш":
 				m.focus = focusInput
 				m.textarea.Focus()
 				m.selectedMessageIndex = -1
 				m.updateViewportContent()
 				m.viewport.GotoBottom()
 
-			case "up", "k":
+			case "up", "k", "л":
 				if m.selectedMessageIndex > 0 {
 					m.selectedMessageIndex--
 					m.updateViewportContent()
 					m.scrollSelectionIntoView()
 				}
 
-			case "down", "j":
+			case "down", "j", "о":
 				if m.selectedMessageIndex < len(m.messages)-1 {
 					m.selectedMessageIndex++
 					m.updateViewportContent()
 					m.scrollSelectionIntoView()
 				}
 
-			case "y":
+			case "y", "н":
 				if m.selectedMessageIndex >= 0 && m.selectedMessageIndex < len(m.messages) {
 					rawMsg := m.messages[m.selectedMessageIndex]
 					var textToCopy string
@@ -890,7 +890,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					)
 				}
 
-			case "p", "P":
+			case "p", "P", "з":
 				clipText, err := clipboard.ReadAll()
 				if err != nil {
 					m.notification = "✗ Ошибка вставки"
