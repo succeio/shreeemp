@@ -16,6 +16,9 @@ import (
 	"shreeemp/database"
 )
 
+var listenTCP = net.Listen
+var listenTLS = tls.Listen
+
 // Run запускает сервер на указанном порту
 func Run(port int) {
 	listener, err := createListener(port)
@@ -90,12 +93,12 @@ func createListener(port int) (net.Listener, error) {
 			MinVersion:   tls.VersionTLS13,
 		}
 
-		return tls.Listen("tcp", addr, config)
+		return listenTLS("tcp", addr, config)
 	}
 
 	// СЦЕНАРИЙ Б: Сертификатов нет -> запускаем обычный TCP
 	log.Printf("[SERVER WARNING] Режим разработки. Сертификаты не найдены. Запуск сервера на обычном TCP на %s...", addr)
-	return net.Listen("tcp", addr)
+	return listenTCP("tcp", addr)
 }
 
 // Client описывает подключенного клиента
@@ -235,9 +238,12 @@ func handleServerClient(conn net.Conn, hub *Hub) {
 }
 
 func (h *Hub) JoinRoom(roomName string, client *Client) {
+	var leftRoom string
+	var leftRoomClients []*Client
+
 	h.mu.Lock()
 	if client.room != "" {
-		h.leaveRoomInternal(client)
+		leftRoom, leftRoomClients = h.leaveRoomInternal(client)
 	}
 
 	if _, exists := h.rooms[roomName]; !exists {
@@ -245,13 +251,22 @@ func (h *Hub) JoinRoom(roomName string, client *Client) {
 	}
 	h.rooms[roomName][client] = true
 	client.room = roomName
-	h.mu.Unlock() // Разблокируем мьютекс, чтобы не забивать поток во время работы с БД
+	h.mu.Unlock()
+
+	if leftRoom != "" {
+		h.writeToClients(leftRoomClients, fmt.Sprintf("— %s покинул комнату —\n", client.name))
+	}
 
 	// 2. ОТПРАВКА ИСТОРИИ ИЗ БД ДО ПРИВЕТСТВИЯ
 	var history []database.MessageDB
 	// Берем последние 50 сообщений, отсортированных по дате создания
-	result := database.DB.Where("room = ?", roomName).Order("created_at desc").Limit(50).Find(&history)
-	if result.Error == nil && len(history) > 0 {
+	if database.DB != nil {
+		result := database.DB.Where("room = ?", roomName).Order("created_at desc").Limit(50).Find(&history)
+		if result.Error != nil {
+			log.Printf("[DB ERROR] Не удалось загрузить историю комнаты %s: %v", roomName, result.Error)
+		}
+	}
+	if len(history) > 0 {
 		// Так как мы достали их в обратном порядке (от новых к старым),
 		// для вывода на экран их нужно перевернуть обратно
 		for i := len(history) - 1; i >= 0; i-- {
@@ -263,17 +278,30 @@ func (h *Hub) JoinRoom(roomName string, client *Client) {
 	}
 
 	// Оповещаем остальных в комнате о новом участнике
-	h.mu.Lock()
-	h.broadcastInternal(roomName, nil, fmt.Sprintf("— %s присоединился к комнате %s —\n", client.name, roomName))
-	h.mu.Unlock()
+	h.Broadcast(roomName, nil, fmt.Sprintf("— %s присоединился к комнате %s —\n", client.name, roomName))
 }
 
 // Broadcast отправляет сообщение всем участникам комнаты, кроме автора
 func (h *Hub) Broadcast(roomName string, sender *Client, message string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	if roomName == "" {
+		return
+	}
 
-	h.broadcastInternal(roomName, sender, message)
+	h.mu.Lock()
+	clients := h.roomClients(roomName)
+	h.mu.Unlock()
+
+	if len(clients) == 0 {
+		return
+	}
+
+	formattedMessage := message
+	if sender != nil {
+		formattedMessage = fmt.Sprintf("%s: %s\n", sender.name, message)
+		h.saveMessage(roomName, sender.name, message)
+	}
+
+	h.writeToClients(clients, formattedMessage)
 }
 
 // GetRoomsWithCounts возвращает строку со списком комнат и количеством людей в них
@@ -290,17 +318,25 @@ func (h *Hub) GetRoomsWithCounts() string {
 	// 2. Достаем список всех уникальных комнат, которые уже созданы в базе данных
 	var dbRooms []string
 	// SQL-эквивалент: SELECT DISTINCT room FROM messages
-	err := database.DB.Model(&database.MessageDB{}).Distinct("room").Pluck("room", &dbRooms).Error
-	if err == nil {
-		for _, r := range dbRooms {
-			if r != "" {
-				uniqueRooms[r] = true
+	if database.DB != nil {
+		err := database.DB.Model(&database.MessageDB{}).Distinct("room").Pluck("room", &dbRooms).Error
+		if err == nil {
+			for _, r := range dbRooms {
+				if r != "" {
+					uniqueRooms[r] = true
+				}
 			}
+		} else {
+			log.Printf("[DB ERROR] Не удалось получить список комнат: %v", err)
 		}
 	}
 
 	// 3. Блокируем хаб мьютексом, чтобы безопасно посчитать текущий онлайн в комнатах
 	h.mu.Lock()
+	for roomName := range h.rooms {
+		uniqueRooms[roomName] = true
+	}
+
 	var parts []string
 	for roomName := range uniqueRooms {
 		onlineCount := 0
@@ -315,33 +351,39 @@ func (h *Hub) GetRoomsWithCounts() string {
 	return "ROOMS_LIST:" + strings.Join(parts, ",")
 }
 
-func (h *Hub) broadcastInternal(roomName string, sender *Client, message string) {
+func (h *Hub) roomClients(roomName string) []*Client {
 	clients, exists := h.rooms[roomName]
 	if !exists {
+		return nil
+	}
+
+	roomClients := make([]*Client, 0, len(clients))
+	for client := range clients {
+		roomClients = append(roomClients, client)
+	}
+	return roomClients
+}
+
+func (h *Hub) saveMessage(roomName, senderName, message string) {
+	if database.DB == nil {
 		return
 	}
 
-	formattedMessage := message
-	if sender != nil {
-		formattedMessage = fmt.Sprintf("%s: %s\n", sender.name, message)
-
-		// СОХРАНЕНИЕ В БД: Записываем только сообщения от реальных пользователей (sender != nil)
-		dbMsg := database.MessageDB{
-			Room:   roomName,
-			Sender: sender.name,
-			Text:   message,
-		}
-		// Асинхронно или синхронно сохраняем в базу.
-		// Метод .Create() сам заполнит ID и CreatedAt
-		if err := database.DB.Create(&dbMsg).Error; err != nil {
-			log.Printf("[DB ERROR] Не удалось сохранить сообщение: %v", err)
-		}
+	dbMsg := database.MessageDB{
+		Room:   roomName,
+		Sender: senderName,
+		Text:   message,
 	}
+	if err := database.DB.Create(&dbMsg).Error; err != nil {
+		log.Printf("[DB ERROR] Не удалось сохранить сообщение: %v", err)
+	}
+}
 
-	for client := range clients {
-		_, err := client.conn.Write([]byte(formattedMessage))
+func (h *Hub) writeToClients(clients []*Client, message string) {
+	for _, client := range clients {
+		_, err := client.conn.Write([]byte(message))
 		if err != nil {
-			go h.RemoveClient(client)
+			h.RemoveClient(client)
 		}
 	}
 }
@@ -349,20 +391,28 @@ func (h *Hub) broadcastInternal(roomName string, sender *Client, message string)
 // RemoveClient полностью удаляет клиента из чата при отключении
 func (h *Hub) RemoveClient(client *Client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	leftRoom, leftRoomClients := h.leaveRoomInternal(client)
+	h.mu.Unlock()
 
-	h.leaveRoomInternal(client)
+	if leftRoom != "" {
+		h.writeToClients(leftRoomClients, fmt.Sprintf("— %s покинул комнату —\n", client.name))
+	}
 }
 
 // Внутренний метод выхода из комнаты
-func (h *Hub) leaveRoomInternal(client *Client) {
+func (h *Hub) leaveRoomInternal(client *Client) (string, []*Client) {
 	if client.room == "" {
-		return
+		return "", nil
 	}
 
+	roomName := client.room
+	var clientsToNotify []*Client
 	if clients, exists := h.rooms[client.room]; exists {
 		delete(clients, client) // Удаляем из карты
-		h.broadcastInternal(client.room, nil, fmt.Sprintf("— %s покинул комнату —\n", client.name))
+		clientsToNotify = make([]*Client, 0, len(clients))
+		for roomClient := range clients {
+			clientsToNotify = append(clientsToNotify, roomClient)
+		}
 
 		// Если комната стала пустой, удаляем саму комнату для экономии памяти
 		if len(clients) == 0 {
@@ -370,6 +420,7 @@ func (h *Hub) leaveRoomInternal(client *Client) {
 		}
 	}
 	client.room = ""
+	return roomName, clientsToNotify
 }
 
 // Вспомогательная функция очистки строк

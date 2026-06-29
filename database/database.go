@@ -45,6 +45,9 @@ func InitDB() {
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Error),
 	})
+	if err != nil {
+		log.Fatalf("[DB ERROR] Не удалось подключиться к базе данных: %v", err)
+	}
 
 	sqlDB, err := DB.DB()
 	if err == nil {
@@ -58,10 +61,6 @@ func InitDB() {
 
 		// Время, в течение которого соединение может быть переиспользовано, прежде чем закроется
 		sqlDB.SetConnMaxLifetime(time.Hour)
-	}
-
-	if err != nil {
-		log.Fatalf("[DB ERROR] Не удалось подключиться к базе данных: %v", err)
 	}
 
 	// 1. Автоматическое создание схем и таблиц
